@@ -4,10 +4,9 @@ from typing import Optional
 from playwright.sync_api import sync_playwright, BrowserContext, Page
 
 from core.config import config
+from core.logger import setup_logger
 
-# Setup basic logger if not configured
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 class ShopeeSessionManager:
     """
@@ -132,7 +131,8 @@ class ShopeeSessionManager:
                 else:
                     logger.warning("Shopee Session is invalid or has expired.")
                 
-                context.browser.close()
+                if context and context.browser:
+                    context.browser.close()
                 return is_valid
                 
         except Exception as e:

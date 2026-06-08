@@ -1,5 +1,6 @@
 import time
 import logging
+import urllib.parse
 from typing import List, Dict
 from playwright.sync_api import sync_playwright
 
@@ -29,33 +30,34 @@ class ShopeeProductFinder:
         
         products = []
         
-        try:
-            with sync_playwright() as p:
-                # Me-load session affiliate jika tersedia agar request dikenali
-                # sebagai akun pengguna terdaftar (mencegah anti-bot agresif Shopee)
-                context = self.session_manager.load_session(p, headless=headless)
-                
-                # Fallback ke context anonim jika gagal load session (agar pencarian tetap jalan)
-                if not context:
-                    logger.warning("Session Shopee tidak ditemukan. Melanjutkan pencarian sebagai Guest.")
-                    browser = p.chromium.launch(headless=headless)
-                    context = browser.new_context()
-                else:
-                    browser = context.browser
-                
-                page = context.new_page()
-                
-                # Menuju halaman pencarian Shopee dengan URL Encode standar
-                search_url = f"{self.base_url}/search?keyword={keyword.replace(' ', '%20')}"
-                logger.info(f"Membuka halaman pencarian: {search_url}")
-                page.goto(search_url)
-                
-                # Tunggu agar kerangka website termuat sepenuhnya
-                page.wait_for_load_state("networkidle", timeout=20000)
-                page.wait_for_timeout(4000) # Buffer khusus render client-side react Shopee
-                
-                # Scroll ke bawah secara bertahap untuk memicu pemuatan lazy-loaded images & cards
-                for _ in range(4):
+        for attempt in range(1, 4):
+            try:
+                with sync_playwright() as p:
+                    # Me-load session affiliate jika tersedia agar request dikenali
+                    # sebagai akun pengguna terdaftar (mencegah anti-bot agresif Shopee)
+                    context = self.session_manager.load_session(p, headless=headless)
+                    
+                    # Fallback ke context anonim jika gagal load session (agar pencarian tetap jalan)
+                    if not context:
+                        logger.warning("Session Shopee tidak ditemukan. Melanjutkan pencarian sebagai Guest.")
+                        browser = p.chromium.launch(headless=headless)
+                        context = browser.new_context()
+                    else:
+                        browser = context.browser
+                    try:
+                    page = context.new_page()
+                    
+                    # Menuju halaman pencarian Shopee dengan URL Encode standar
+                    query_string = urllib.parse.urlencode({'keyword': keyword})
+                    search_url = f"{self.base_url}/search?{query_string}"
+                    logger.info(f"Membuka halaman pencarian: {search_url}")
+                    page.goto(search_url)
+                    
+                    # Tunggu agar kerangka website termuat sepenuhnya
+                    page.wait_for_load_state("networkidle", timeout=20000)
+                    page.wait_for_timeout(4000) # Buffer khusus render client-side react Shopee
+                    
+                    for _ in range(4):
                     page.evaluate("window.scrollBy(0, window.innerHeight);")
                     page.wait_for_timeout(1500)
                 
@@ -144,11 +146,42 @@ class ShopeeProductFinder:
                         "price": rp["price"].strip(),
                         "url": clean_url
                     })
-                
-                logger.info(f"Berhasil mengamankan {len(products)} produk final.")
-                browser.close()
-                return products
-                
-        except Exception as e:
-            logger.error(f"Error pada ShopeeProductFinder: {e}")
-            return products
+                    """
+                    
+                    raw_products = page.evaluate(js_extract_code)
+                    logger.info(f"Ditemukan {len(raw_products)} kandidat produk di layar.")
+                    
+                    # Filter, batasi jumlah, dan bersihkan URL dari tracking tag yang berlebihan
+                    seen_urls = set()
+                    for rp in raw_products:
+                        if len(products) >= limit:
+                            break
+                            
+                        # Bersihkan query parameter tracker (?sp_atk=...) untuk mendapatkan link produk murni
+                        clean_url = rp['url'].split('?')[0]
+                        
+                        if clean_url in seen_urls:
+                            continue
+                            
+                        seen_urls.add(clean_url)
+                        
+                        products.append({
+                            "name": rp["name"].strip(),
+                            "price": rp["price"].strip(),
+                            "url": clean_url
+                        })
+                    
+                    logger.info(f"Berhasil mengamankan {len(products)} produk final.")
+                    return products
+            finally:
+                if 'browser' in locals() and browser:
+                    browser.close()
+                    
+            except Exception as e:
+                logger.error(f"Error pada ShopeeProductFinder (Percobaan {attempt}/3): {e}")
+                if attempt == 3:
+                    logger.error("Gagal melakukan pencarian produk Shopee setelah 3 kali percobaan.")
+                else:
+                    time.sleep(2 ** attempt)
+        
+        return products

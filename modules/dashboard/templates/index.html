@@ -15,11 +15,20 @@
                 Threads Shopee AI
             </h1>
             <div class="flex gap-4">
+                <a href="/?status=all" class="px-4 py-2 rounded-lg font-medium transition-colors {% if status == 'all' %}bg-indigo-50 text-indigo-700{% else %}text-gray-600 hover:bg-gray-100{% endif %}">
+                    All
+                </a>
                 <a href="/?status=pending" class="px-4 py-2 rounded-lg font-medium transition-colors {% if status == 'pending' %}bg-indigo-50 text-indigo-700{% else %}text-gray-600 hover:bg-gray-100{% endif %}">
                     Pending
                 </a>
-                <a href="/?status=processed" class="px-4 py-2 rounded-lg font-medium transition-colors {% if status == 'processed' %}bg-indigo-50 text-indigo-700{% else %}text-gray-600 hover:bg-gray-100{% endif %}">
-                    Processed
+                <a href="/?status=analyzed" class="px-4 py-2 rounded-lg font-medium transition-colors {% if status == 'analyzed' %}bg-indigo-50 text-indigo-700{% else %}text-gray-600 hover:bg-gray-100{% endif %}">
+                    Analyzed
+                </a>
+                <a href="/?status=approved" class="px-4 py-2 rounded-lg font-medium transition-colors {% if status == 'approved' %}bg-indigo-50 text-indigo-700{% else %}text-gray-600 hover:bg-gray-100{% endif %}">
+                    Approved
+                </a>
+                <a href="/analytics" class="px-4 py-2 rounded-lg font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors ml-4">
+                    Analytics
                 </a>
             </div>
         </div>

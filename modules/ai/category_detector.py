@@ -76,6 +76,7 @@ class AICategoryDetector:
                     # Log peringatan jika AI mulai "berhalusinasi" membuat kategori sendiri
                     if cat not in self.valid_categories:
                         logger.warning(f"AI memberikan kategori di luar daftar baku: {cat}")
+                        cat = "Unknown" # Force fallback
                         
                     logger.info(f"Deteksi sukses. Kategori: {cat}")
                     return {"category": cat}

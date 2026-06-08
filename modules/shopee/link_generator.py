@@ -111,8 +111,10 @@ class ShopeeLinkGenerator:
                 else:
                     logger.warning("Gagal mengekstrak text affiliate link dari antarmuka web.")
                 
-                browser.close()
                 return affiliate_url
+            finally:
+                if 'browser' in locals() and browser:
+                    browser.close()
                 
         except Exception as e:
             logger.error(f"Terjadi kesalahan saat generate link: {e}")

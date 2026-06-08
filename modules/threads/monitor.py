@@ -1,5 +1,6 @@
 import time
 import logging
+import urllib.parse
 from typing import List, Dict
 from playwright.sync_api import sync_playwright
 
@@ -35,16 +36,18 @@ class ThreadsMonitor:
 
         posts_collected = []
         
-        try:
-            with sync_playwright() as p:
-                context = self.session_manager.load_session(p, headless=headless)
-                if not context:
-                    return []
-                    
-                page = context.new_page()
+        for attempt in range(1, 4):
+            try:
+                with sync_playwright() as p:
+                    context = self.session_manager.load_session(p, headless=headless)
+                    if not context:
+                        return []
+                        
+                    page = context.new_page()
                 
-                # Mengubah spasi menjadi + untuk URL query
-                search_url = f"{self.base_url}/search?q={keyword.replace(' ', '+')}"
+                # URL Encode standar dan aman
+                query_string = urllib.parse.urlencode({'q': keyword})
+                search_url = f"{self.base_url}/search?{query_string}"
                 logger.info(f"Membuka halaman pencarian: {search_url}")
                 page.goto(search_url)
                 
@@ -131,12 +134,18 @@ class ThreadsMonitor:
                     self._save_to_db(post_data)
 
                 logger.info(f"Proses selesai. Berhasil mengumpulkan & menyimpan {len(posts_collected)} post.")
-                context.browser.close()
+                if context and context.browser:
+                    context.browser.close()
                 return posts_collected
-                
-        except Exception as e:
-            logger.error(f"Error pada ThreadsMonitor: {e}")
-            return posts_collected
+                    
+            except Exception as e:
+                logger.error(f"Error pada ThreadsMonitor (Percobaan {attempt}/3): {e}")
+                if attempt == 3:
+                    logger.error("Gagal melakukan pencarian Threads setelah 3 kali percobaan.")
+                else:
+                    time.sleep(2 ** attempt)
+                    
+        return posts_collected
 
     def _save_to_db(self, data: Dict):
         """

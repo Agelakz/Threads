@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean
 from sqlalchemy.orm import declarative_base
-from datetime import datetime
+from datetime import datetime, timezone
 
 Base = declarative_base()
 
@@ -14,10 +14,11 @@ class ThreadPost(Base):
     content = Column(Text)
     url = Column(String(500))
     keyword = Column(String(255))
-    scraped_at = Column(DateTime, default=datetime.utcnow)
+    scraped_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     
     # Status tracking for downstream AI & Matcher processing
-    is_processed = Column(Boolean, default=False)
+    status = Column(String(20), default="PENDING")
+    is_processed = Column(Boolean, default=False) # Legacy flag
     intent_score = Column(Integer, nullable=True)
     category = Column(String(100), nullable=True)
     reply_draft = Column(Text, nullable=True)
@@ -30,7 +31,7 @@ class SystemLog(Base):
     level = Column(String(50)) # e.g., INFO, WARNING, ERROR
     module = Column(String(100)) # e.g., SessionManager, ThreadsMonitor
     message = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 class AffiliateLink(Base):
     """Model for storing original product URLs and their Shopee Affiliate short links."""
@@ -39,4 +40,16 @@ class AffiliateLink(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     original_url = Column(String(500), unique=True, index=True, nullable=False)
     affiliate_url = Column(String(500), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+class ProductMetric(Base):
+    """Model for storing Product Ranking metrics."""
+    __tablename__ = 'product_metrics'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    product_name = Column(String(500), index=True)
+    category = Column(String(100))
+    click_count = Column(Integer, default=0)
+    conversion_count = Column(Integer, default=0)
+    product_score = Column(Integer, default=0)
+    last_update = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

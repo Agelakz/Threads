@@ -4,6 +4,7 @@ import logging
 from typing import List, Dict
 import google.generativeai as genai
 from core.config import config
+from modules.matcher.ranking_engine import RankingEngine
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ class AIProductMatcher:
             
         genai.configure(api_key=self.api_key)
         self.model = genai.GenerativeModel('gemini-1.5-flash')
+        self.ranking_engine = RankingEngine()
 
     def match_product(self, post_content: str, candidate_products: List[Dict], max_retries: int = 3) -> dict:
         """
@@ -39,10 +41,20 @@ class AIProductMatcher:
             logger.warning("Daftar kandidat produk kosong, pencocokan dibatalkan.")
             return {"product_name": "Tidak Ditemukan", "category": "Unknown"}
 
+        # Enrich products with scores and sort them
+        enriched_products = []
+        for p in candidate_products:
+            score = self.ranking_engine.get_score(p.get("name", ""))
+            p["score"] = score
+            enriched_products.append(p)
+            
+        # Sort descending by score
+        enriched_products.sort(key=lambda x: x["score"], reverse=True)
+
         # Merangkai kandidat produk menjadi teks agar dapat diproses oleh LLM
         products_text = ""
-        for idx, p in enumerate(candidate_products, 1):
-            products_text += f"{idx}. {p.get('name', 'Unknown')} - {p.get('price', 'Unknown')}\n"
+        for idx, p in enumerate(enriched_products, 1):
+            products_text += f"{idx}. {p.get('name', 'Unknown')} - {p.get('price', 'Unknown')} (Product Score: {p.get('score', 0)})\n"
 
         prompt = f"""
         Anda adalah asisten rekomendasi produk belanja online yang ahli.
@@ -56,8 +68,9 @@ class AIProductMatcher:
         Tugas Anda:
         1. Analisis konteks dan kebutuhan dari postingan pengguna.
         2. Pilih SATU produk dari daftar kandidat di atas yang paling akurat dan relevan untuk ditawarkan.
-        3. Sebutkan nama produk secara persis seperti di daftar.
-        4. Tentukan satu kategori umum untuk produk tersebut (misal: Fashion, Beauty, Gaming, Electronics, Home, Health).
+        3. Jika ada beberapa produk yang sama relevannya, PRIORITASKAN produk dengan Product Score tertinggi.
+        4. Sebutkan nama produk secara persis seperti di daftar.
+        5. Tentukan satu kategori umum untuk produk tersebut (misal: Fashion, Beauty, Gaming, Electronics, Home, Health).
         
         Balas HANYA dengan format JSON ketat sesuai schema di bawah ini tanpa karakter backticks Markdown:
         {{
