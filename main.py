@@ -27,7 +27,7 @@ def run_pipeline(keyword: str, limit: int = 5, headless: bool = True):
 
     # 1. Scrape Threads
     monitor = ThreadsMonitor()
-    raw_posts = monitor.search_keyword(keyword, limit=limit, headless=headless)
+    raw_posts = monitor.search_and_collect(keyword, limit=limit, headless=headless)
     
     if not raw_posts:
         logger.info("Tidak ada post baru yang ditemukan. Pipeline dihentikan.")
@@ -43,8 +43,8 @@ def run_pipeline(keyword: str, limit: int = 5, headless: bool = True):
 
     # 2. Proses masing-masing post
     for post in raw_posts:
-        post_content = post["text"]
-        logger.info(f"--- Memproses Post ID: {post['id']} ---")
+        post_content = post["content"]
+        logger.info(f"--- Memproses Post ID: {post['post_id']} ---")
         
         # Step A: Intent Scoring
         intent_res = intent_scorer.analyze_intent(post_content)
@@ -52,10 +52,10 @@ def run_pipeline(keyword: str, limit: int = 5, headless: bool = True):
         
         if intent_score < 70:
             logger.info(f"Intent rendah ({intent_score}). Diabaikan.")
-            _update_status(post["id"], "SKIPPED", f"Low intent score: {intent_score}")
+            _update_status(post["post_id"], "SKIPPED", f"Low intent score: {intent_score}")
             continue
             
-        _update_status(post["id"], "ANALYZED", "AI Intent Scorer selesai")
+        _update_status(post["post_id"], "ANALYZED", "AI Intent Scorer selesai")
             
         # Step B: Category Detection
         cat_res = category_detector.detect_category(post_content)
@@ -72,26 +72,45 @@ def run_pipeline(keyword: str, limit: int = 5, headless: bool = True):
             
         # Step D: Product Matching
         match_res = product_matcher.match_product(post_content, products)
-        best_match = match_res.get("best_match")
+        product_name = match_res.get("product_name", "")
         
-        if not best_match or match_res.get("confidence_score", 0) < 60:
+        if not product_name or product_name == "Tidak Ditemukan":
             logger.info("Tidak ada kecocokan produk yang tinggi. Diabaikan.")
             continue
             
+        # Find the matched product from the list to get URL
+        best_match = None
+        for p in products:
+            if p.get("name", "") == product_name:
+                best_match = p
+                break
+        if not best_match and products:
+            # Fallback to first product if name doesn't match exactly
+            best_match = products[0]
+            
+        if not best_match:
+            logger.info("Tidak ada produk yang cocok. Diabaikan.")
+            continue
+            
         # Step E: Link Generation
-        affiliate_url = link_generator.generate_link(best_match["url"], headless=headless)
+        affiliate_url = link_generator.generate_affiliate_link(best_match["url"], headless=headless)
         if not affiliate_url:
             logger.info("Gagal men-generate link affiliate Shopee. Diabaikan.")
             continue
             
         # Step F: Reply Generation
-        reply_draft = reply_generator.generate_reply(post_content, best_match, affiliate_url)
+        reply_draft = reply_generator.generate_draft(
+            post_content=post_content,
+            category=category,
+            product_name=product_name,
+            affiliate_link=affiliate_url
+        )
         
         # Step G: Update Database
-        _update_post_fields(post["id"], intent_score, category, reply_draft)
+        _update_post_fields(post["post_id"], intent_score, category, reply_draft)
         
         # Biarkan status tetap ANALYZED, tunggu admin Approve di Dashboard
-        logger.info(f"Draft balasan berhasil dibuat untuk post {post['id']}")
+        logger.info(f"Draft balasan berhasil dibuat untuk post {post['post_id']}")
 
     logger.info("=== Pipeline Selesai ===")
 

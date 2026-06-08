@@ -138,11 +138,11 @@ def analytics():
         # Daily Analytics (Posts per day, Approved per day, Sent per day)
         # Using SQLite date function
         daily_stats = db.query(
-            func.date(ThreadPost.created_at).label('day'),
+            func.date(ThreadPost.scraped_at).label('day'),
             func.count(ThreadPost.id).label('posts'),
             func.sum(func.case((ThreadPost.status == 'APPROVED', 1), else_=0)).label('approved'),
             func.sum(func.case((ThreadPost.status == 'SENT', 1), else_=0)).label('sent')
-        ).group_by('day').order_by(func.date(ThreadPost.created_at).desc()).limit(10).all()
+        ).group_by('day').order_by(func.date(ThreadPost.scraped_at).desc()).limit(10).all()
         
         return render_template('analytics.html', 
                                total=total_posts,

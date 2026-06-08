@@ -46,6 +46,7 @@ class ShopeeLinkGenerator:
             return None
 
         affiliate_url = None
+        browser = None
         try:
             with sync_playwright() as p:
                 context = self.session_manager.load_session(p, headless=headless)
@@ -111,14 +112,14 @@ class ShopeeLinkGenerator:
                 else:
                     logger.warning("Gagal mengekstrak text affiliate link dari antarmuka web.")
                 
-                return affiliate_url
-            finally:
-                if 'browser' in locals() and browser:
-                    browser.close()
-                
         except Exception as e:
             logger.error(f"Terjadi kesalahan saat generate link: {e}")
             return None
+        finally:
+            if browser:
+                browser.close()
+                
+        return affiliate_url
 
     def _save_to_db(self, original_url: str, affiliate_url: str):
         """Menyimpan record original url dan affiliate url ke dalam database."""

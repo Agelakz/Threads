@@ -118,7 +118,7 @@ class ThreadsPoster:
             
             # Tunggu respon bahwa posting berhasil (contoh: muncul toast atau input box clear)
             page.wait_for_timeout(3000)
-            logger.info(f"Berhasil mengirim balasan ke {post.author}")
+            logger.info(f"Berhasil mengirim balasan ke {post.author_username}")
             return True
 
         except Exception as e:

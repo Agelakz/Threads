@@ -44,7 +44,7 @@ class ShopeeProductFinder:
                         context = browser.new_context()
                     else:
                         browser = context.browser
-                    try:
+                    
                     page = context.new_page()
                     
                     # Menuju halaman pencarian Shopee dengan URL Encode standar
@@ -58,32 +58,59 @@ class ShopeeProductFinder:
                     page.wait_for_timeout(4000) # Buffer khusus render client-side react Shopee
                     
                     for _ in range(4):
-                    page.evaluate("window.scrollBy(0, window.innerHeight);")
-                    page.wait_for_timeout(1500)
-                
-                logger.info("Parsing data produk dari DOM...")
-                
-                # Injeksi Javascript untuk mem-parsing kartu produk.
-                # Kita mencari nama (teks panjang) dan harga (mengandung string Rp)
-                js_extract_code = """
-                () => {
-                    const items = [];
-                    // Shopee membungkus kartu produk dengan link <a> yang menuju produk
-                    const cards = document.querySelectorAll('a[data-sqe="link"]');
+                        page.evaluate("window.scrollBy(0, window.innerHeight);")
+                        page.wait_for_timeout(1500)
                     
-                    if (cards.length > 0) {
-                        cards.forEach(card => {
-                            let url = card.href;
+                    logger.info("Parsing data produk dari DOM...")
+                    
+                    # Injeksi Javascript untuk mem-parsing kartu produk.
+                    # Kita mencari nama (teks panjang) dan harga (mengandung string Rp)
+                    js_extract_code = """
+                    () => {
+                        const items = [];
+                        // Shopee membungkus kartu produk dengan link <a> yang menuju produk
+                        const cards = document.querySelectorAll('a[data-sqe="link"]');
+                        
+                        if (cards.length > 0) {
+                            cards.forEach(card => {
+                                let url = card.href;
+                                let name = "";
+                                let price = "";
+                                
+                                const textElements = card.querySelectorAll('span, div');
+                                textElements.forEach(el => {
+                                    const text = el.innerText.trim();
+                                    if (text.includes('Rp')) {
+                                        price = text.replace(/\\n/g, ' ');
+                                    } else if (text.length > 15 && !text.includes('Terjual') && !text.includes('Diskon')) {
+                                        // Asumsi text terpanjang pertama adalah judul
+                                        if(name === "") name = text.replace(/\\n/g, ' ');
+                                    }
+                                });
+                                
+                                if (url && name && price) {
+                                    items.push({name, price, url});
+                                }
+                            });
+                            return items;
+                        }
+                        
+                        // Fallback jika class/data attribute berubah (Shopee sering update DOM)
+                        const fallbackCards = document.querySelectorAll('div.col-xs-2-4');
+                        fallbackCards.forEach(card => {
+                            const linkEl = card.querySelector('a');
+                            if(!linkEl) return;
+                            
+                            let url = linkEl.href;
                             let name = "";
                             let price = "";
                             
-                            const textElements = card.querySelectorAll('span, div');
+                            const textElements = card.querySelectorAll('div, span');
                             textElements.forEach(el => {
                                 const text = el.innerText.trim();
                                 if (text.includes('Rp')) {
                                     price = text.replace(/\\n/g, ' ');
-                                } else if (text.length > 15 && !text.includes('Terjual') && !text.includes('Diskon')) {
-                                    // Asumsi text terpanjang pertama adalah judul
+                                } else if (text.length > 15 && !text.includes('Terjual') && !text.includes('KAB.')) {
                                     if(name === "") name = text.replace(/\\n/g, ' ');
                                 }
                             });
@@ -92,60 +119,9 @@ class ShopeeProductFinder:
                                 items.push({name, price, url});
                             }
                         });
+                        
                         return items;
                     }
-                    
-                    // Fallback jika class/data attribute berubah (Shopee sering update DOM)
-                    const fallbackCards = document.querySelectorAll('div.col-xs-2-4');
-                    fallbackCards.forEach(card => {
-                        const linkEl = card.querySelector('a');
-                        if(!linkEl) return;
-                        
-                        let url = linkEl.href;
-                        let name = "";
-                        let price = "";
-                        
-                        const textElements = card.querySelectorAll('div, span');
-                        textElements.forEach(el => {
-                            const text = el.innerText.trim();
-                            if (text.includes('Rp')) {
-                                price = text.replace(/\\n/g, ' ');
-                            } else if (text.length > 15 && !text.includes('Terjual') && !text.includes('KAB.')) {
-                                if(name === "") name = text.replace(/\\n/g, ' ');
-                            }
-                        });
-                        
-                        if (url && name && price) {
-                            items.push({name, price, url});
-                        }
-                    });
-                    
-                    return items;
-                }
-                """
-                
-                raw_products = page.evaluate(js_extract_code)
-                logger.info(f"Ditemukan {len(raw_products)} kandidat produk di layar.")
-                
-                # Filter, batasi jumlah, dan bersihkan URL dari tracking tag yang berlebihan
-                seen_urls = set()
-                for rp in raw_products:
-                    if len(products) >= limit:
-                        break
-                        
-                    # Bersihkan query parameter tracker (?sp_atk=...) untuk mendapatkan link produk murni
-                    clean_url = rp['url'].split('?')[0]
-                    
-                    if clean_url in seen_urls:
-                        continue
-                        
-                    seen_urls.add(clean_url)
-                    
-                    products.append({
-                        "name": rp["name"].strip(),
-                        "price": rp["price"].strip(),
-                        "url": clean_url
-                    })
                     """
                     
                     raw_products = page.evaluate(js_extract_code)
@@ -173,9 +149,6 @@ class ShopeeProductFinder:
                     
                     logger.info(f"Berhasil mengamankan {len(products)} produk final.")
                     return products
-            finally:
-                if 'browser' in locals() and browser:
-                    browser.close()
                     
             except Exception as e:
                 logger.error(f"Error pada ShopeeProductFinder (Percobaan {attempt}/3): {e}")
