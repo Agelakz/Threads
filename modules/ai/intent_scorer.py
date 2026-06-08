@@ -2,9 +2,13 @@ import json
 import time
 import logging
 import google.generativeai as genai
+from google.generativeai.types import RequestOptions
 from core.config import config
 
 logger = logging.getLogger(__name__)
+
+# Default timeout untuk API calls (dalam detik)
+DEFAULT_TIMEOUT = 30
 
 class AIIntentScorer:
     """
@@ -54,7 +58,8 @@ class AIIntentScorer:
                 logger.info(f"Menganalisis intent post (Percobaan {attempt}/{max_retries})...")
                 response = self.model.generate_content(
                     prompt,
-                    generation_config=generation_config
+                    generation_config=generation_config,
+                    request_options=RequestOptions(timeout=DEFAULT_TIMEOUT * 1000)  # Convert to ms
                 )
                 
                 result = json.loads(response.text)
@@ -67,7 +72,7 @@ class AIIntentScorer:
                     raise ValueError(f"Respon JSON kehilangan key 'score' atau 'status': {result}")
 
             except Exception as e:
-                logger.warning(f"Error saat memanggil Gemini API: {e}")
+                logger.warning(f"Error saat memanggil Gemini API: {e}", exc_info=True)
                 
                 # Retry Mechanism
                 if attempt < max_retries:
@@ -75,7 +80,7 @@ class AIIntentScorer:
                     logger.info(f"Retrying dalam {wait_time} detik...")
                     time.sleep(wait_time)
                 else:
-                    logger.error("Gagal memanggil Gemini API setelah batas maksimal retry.")
+                    logger.error("Gagal memanggil Gemini API setelah batas maksimal retry.", exc_info=True)
                     
         # Fallback default jika gagal seluruhnya
         return {

@@ -35,7 +35,7 @@ class ShopeeLinkGenerator:
                 logger.info("Link affiliate ditemukan di Database (Cache Hit).")
                 return existing_link.affiliate_url
         except Exception as e:
-            logger.error(f"Error mengakses database: {e}")
+            logger.error(f"Error mengakses database: {e}", exc_info=True)
         finally:
             db.close()
 
@@ -47,10 +47,14 @@ class ShopeeLinkGenerator:
 
         affiliate_url = None
         browser = None
+        context = None
+        page = None
+        
         try:
             with sync_playwright() as p:
                 context = self.session_manager.load_session(p, headless=headless)
                 if not context:
+                    logger.error("Gagal memuat session Shopee")
                     return None
                     
                 browser = context.browser
@@ -113,11 +117,26 @@ class ShopeeLinkGenerator:
                     logger.warning("Gagal mengekstrak text affiliate link dari antarmuka web.")
                 
         except Exception as e:
-            logger.error(f"Terjadi kesalahan saat generate link: {e}")
+            logger.error(f"Terjadi kesalahan saat generate link: {e}", exc_info=True)
             return None
+            
         finally:
+            # Cleanup browser resources
+            if page:
+                try:
+                    page.close()
+                except Exception as e:
+                    logger.warning(f"Error menutup page: {e}")
+            if context:
+                try:
+                    context.close()
+                except Exception as e:
+                    logger.warning(f"Error menutup context: {e}")
             if browser:
-                browser.close()
+                try:
+                    browser.close()
+                except Exception as e:
+                    logger.warning(f"Error menutup browser: {e}")
                 
         return affiliate_url
 

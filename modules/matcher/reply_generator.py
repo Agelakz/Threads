@@ -1,9 +1,13 @@
 import time
 import logging
 import google.generativeai as genai
+from google.generativeai.types import RequestOptions
 from core.config import config
 
 logger = logging.getLogger(__name__)
+
+# Default timeout untuk API calls (dalam detik)
+DEFAULT_TIMEOUT = 30
 
 class AIReplyGenerator:
     """
@@ -57,7 +61,10 @@ class AIReplyGenerator:
                 logger.info(f"Men-generate draf balasan (Percobaan {attempt}/{max_retries})...")
                 
                 # Tidak menggunakan JSON config karena kita butuh plain text string utuh
-                response = self.model.generate_content(prompt)
+                response = self.model.generate_content(
+                    prompt,
+                    request_options=RequestOptions(timeout=DEFAULT_TIMEOUT * 1000)  # Convert to ms
+                )
                 
                 draft = response.text.strip()
                 
@@ -68,14 +75,14 @@ class AIReplyGenerator:
                     raise ValueError("Teks kosong dikembalikan oleh AI.")
                     
             except Exception as e:
-                logger.warning(f"Error pada AIReplyGenerator: {e}")
+                logger.warning(f"Error pada AIReplyGenerator: {e}", exc_info=True)
                 
                 if attempt < max_retries:
                     wait_time = 2 ** attempt
                     logger.info(f"Mencoba ulang dalam {wait_time} detik...")
                     time.sleep(wait_time)
                 else:
-                    logger.error("Gagal men-generate draf balasan setelah batas maksimal retry.")
+                    logger.error("Gagal men-generate draf balasan setelah batas maksimal retry.", exc_info=True)
                     
         # Fallback sangat basic apabila AI mati total
         return f"Wah menarik nih kak. Kalau masih nyari {category}, bisa cek {product_name} ini, lumayan oke kok: {affiliate_link}"

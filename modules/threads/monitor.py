@@ -35,115 +35,135 @@ class ThreadsMonitor:
             return []
 
         posts_collected = []
+        browser = None
+        context = None
+        page = None
         
         for attempt in range(1, 4):
             try:
                 with sync_playwright() as p:
                     context = self.session_manager.load_session(p, headless=headless)
                     if not context:
-                        return []
-                        
+                        logger.error("Gagal memuat session Threads")
+                        return posts_collected
+                    
+                    browser = context.browser
                     page = context.new_page()
-                
-                # URL Encode standar dan aman
-                query_string = urllib.parse.urlencode({'q': keyword})
-                search_url = f"{self.base_url}/search?{query_string}"
-                logger.info(f"Membuka halaman pencarian: {search_url}")
-                page.goto(search_url)
-                
-                # Tunggu proses loading render Javascript
-                page.wait_for_load_state("networkidle", timeout=20000)
-                page.wait_for_timeout(3000) # Buffer untuk animasi DOM Threads
-                
-                # Auto-scroll untuk memicu lazy loading sehingga lebih banyak post yang ter-render
-                logger.info("Scrolling layar untuk memuat hasil post...")
-                for _ in range(3):
-                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                    page.wait_for_timeout(2000)
-                
-                # 2. Collect & Parse Post
-                logger.info("Parsing data hasil pencarian...")
-                
-                # Mengekstrak DOM menggunakan eksekusi script JS
-                js_extract_code = """
-                () => {
-                    const posts = [];
-                    // Mencari seluruh elemen A (link) yang mengarah spesifik ke halaman /post/
-                    const postLinks = document.querySelectorAll('a[href*="/post/"]');
-                    const seenUrls = new Set();
                     
-                    postLinks.forEach(link => {
-                        const url = link.href;
-                        // Hindari duplikasi parsing dari link yang sama
-                        if(seenUrls.has(url)) return;
-                        seenUrls.add(url);
+                    # URL Encode standar dan aman
+                    query_string = urllib.parse.urlencode({'q': keyword})
+                    search_url = f"{self.base_url}/search?{query_string}"
+                    logger.info(f"Membuka halaman pencarian: {search_url}")
+                    page.goto(search_url)
+                    
+                    # Tunggu proses loading render Javascript
+                    page.wait_for_load_state("networkidle", timeout=20000)
+                    page.wait_for_timeout(3000) # Buffer untuk animasi DOM Threads
+                    
+                    # Auto-scroll untuk memicu lazy loading sehingga lebih banyak post yang ter-render
+                    logger.info("Scrolling layar untuk memuat hasil post...")
+                    for _ in range(3):
+                        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                        page.wait_for_timeout(2000)
+                    
+                    # 2. Collect & Parse Post
+                    logger.info("Parsing data hasil pencarian...")
+                    
+                    # Mengekstrak DOM menggunakan eksekusi script JS
+                    js_extract_code = """
+                    () => {
+                        const posts = [];
+                        // Mencari seluruh elemen A (link) yang mengarah spesifik ke halaman /post/
+                        const postLinks = document.querySelectorAll('a[href*="/post/"]');
+                        const seenUrls = new Set();
                         
-                        // Ekstrak author dan post_id dari URL Threads (/ @username / post / Cxxxxxx)
-                        const urlObj = new URL(url);
-                        const pathParts = urlObj.pathname.split('/');
-                        let author = "";
-                        let postId = "";
-                        
-                        if(pathParts.length >= 4) {
-                            author = pathParts[1].replace('@', '');
-                            postId = pathParts[3];
-                        }
-                        
-                        // Naik hirarki DOM ke atas untuk membidik kontainer utama pembungkus Post
-                        let container = link;
-                        for(let i=0; i<6; i++) {
-                            if(container.parentElement) {
-                                container = container.parentElement;
+                        postLinks.forEach(link => {
+                            const url = link.href;
+                            // Hindari duplikasi parsing dari link yang sama
+                            if(seenUrls.has(url)) return;
+                            seenUrls.add(url);
+                            
+                            // Ekstrak author dan post_id dari URL Threads (/ @username / post / Cxxxxxx)
+                            const urlObj = new URL(url);
+                            const pathParts = urlObj.pathname.split('/');
+                            let author = "";
+                            let postId = "";
+                            
+                            if(pathParts.length >= 4) {
+                                author = pathParts[1].replace('@', '');
+                                postId = pathParts[3];
                             }
+                            
+                            // Naik hirarki DOM ke atas untuk membidik kontainer utama pembungkus Post
+                            let container = link;
+                            for(let i=0; i<6; i++) {
+                                if(container.parentElement) {
+                                    container = container.parentElement;
+                                }
+                            }
+                            
+                            posts.push({
+                                post_id: postId,
+                                author_username: author,
+                                url: url,
+                                content: container.innerText
+                            });
+                        });
+                        return posts;
+                    }
+                    """
+                    
+                    raw_posts = page.evaluate(js_extract_code)
+                    logger.info(f"Ditemukan {len(raw_posts)} kandidat post di DOM layar.")
+                    
+                    # 3. Validasi & Simpan ke Database
+                    for rp in raw_posts:
+                        if len(posts_collected) >= limit:
+                            break
+                            
+                        # Filter data yang tidak memiliki id atau isi konten
+                        if not rp.get("post_id") or not rp.get("content"):
+                            continue
+                            
+                        content = rp["content"].strip()
+                        
+                        post_data = {
+                            "post_id": rp["post_id"],
+                            "author_username": rp["author_username"],
+                            "url": rp["url"],
+                            "content": content,
+                            "keyword": keyword
                         }
                         
-                        posts.push({
-                            post_id: postId,
-                            author_username: author,
-                            url: url,
-                            content: container.innerText
-                        });
-                    });
-                    return posts;
-                }
-                """
-                
-                raw_posts = page.evaluate(js_extract_code)
-                logger.info(f"Ditemukan {len(raw_posts)} kandidat post di DOM layar.")
-                
-                # 3. Validasi & Simpan ke Database
-                for rp in raw_posts:
-                    if len(posts_collected) >= limit:
-                        break
-                        
-                    # Filter data yang tidak memiliki id atau isi konten
-                    if not rp.get("post_id") or not rp.get("content"):
-                        continue
-                        
-                    content = rp["content"].strip()
-                    
-                    post_data = {
-                        "post_id": rp["post_id"],
-                        "author_username": rp["author_username"],
-                        "url": rp["url"],
-                        "content": content,
-                        "keyword": keyword
-                    }
-                    
-                    posts_collected.append(post_data)
-                    self._save_to_db(post_data)
+                        posts_collected.append(post_data)
+                        self._save_to_db(post_data)
 
-                logger.info(f"Proses selesai. Berhasil mengumpulkan & menyimpan {len(posts_collected)} post.")
-                if context and context.browser:
-                    context.browser.close()
-                return posts_collected
+                    logger.info(f"Proses selesai. Berhasil mengumpulkan & menyimpan {len(posts_collected)} post.")
                     
             except Exception as e:
-                logger.error(f"Error pada ThreadsMonitor (Percobaan {attempt}/3): {e}")
+                logger.error(f"Error pada ThreadsMonitor (Percobaan {attempt}/3): {e}", exc_info=True)
                 if attempt == 3:
                     logger.error("Gagal melakukan pencarian Threads setelah 3 kali percobaan.")
                 else:
                     time.sleep(2 ** attempt)
+                    
+            finally:
+                # Cleanup browser resources
+                if page:
+                    try:
+                        page.close()
+                    except Exception as e:
+                        logger.warning(f"Error menutup page: {e}")
+                if context:
+                    try:
+                        context.close()
+                    except Exception as e:
+                        logger.warning(f"Error menutup context: {e}")
+                if browser:
+                    try:
+                        browser.close()
+                    except Exception as e:
+                        logger.warning(f"Error menutup browser: {e}")
                     
         return posts_collected
 

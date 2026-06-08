@@ -3,10 +3,14 @@ import time
 import logging
 from typing import List, Dict
 import google.generativeai as genai
+from google.generativeai.types import RequestOptions
 from core.config import config
 from modules.matcher.ranking_engine import RankingEngine
 
 logger = logging.getLogger(__name__)
+
+# Default timeout untuk API calls (dalam detik)
+DEFAULT_TIMEOUT = 30
 
 class AIProductMatcher:
     """
@@ -89,7 +93,8 @@ class AIProductMatcher:
                 logger.info(f"Mencocokkan post dengan produk (Percobaan {attempt}/{max_retries})...")
                 response = self.model.generate_content(
                     prompt,
-                    generation_config=generation_config
+                    generation_config=generation_config,
+                    request_options=RequestOptions(timeout=DEFAULT_TIMEOUT * 1000)  # Convert to ms
                 )
                 
                 result = json.loads(response.text)
@@ -102,14 +107,14 @@ class AIProductMatcher:
                     raise ValueError(f"Respon JSON dari AI kehilangan schema yang disyaratkan: {result}")
 
             except Exception as e:
-                logger.warning(f"Error AIProductMatcher: {e}")
+                logger.warning(f"Error AIProductMatcher: {e}", exc_info=True)
                 
                 if attempt < max_retries:
                     wait_time = 2 ** attempt
                     logger.info(f"Mencoba ulang dalam {wait_time} detik...")
                     time.sleep(wait_time)
                 else:
-                    logger.error("Gagal melakukan pencocokan produk setelah batas maksimal retry.")
+                    logger.error("Gagal melakukan pencocokan produk setelah batas maksimal retry.", exc_info=True)
                     
         return {
             "product_name": "Tidak Ditemukan",

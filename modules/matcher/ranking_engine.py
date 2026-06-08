@@ -15,7 +15,7 @@ class RankingEngine:
             score = (click_count * 10) + (conversion_count * 50) + int(rating * 10) + review_count
             return score
         except Exception as e:
-            logger.error(f"Error calculating product score: {e}")
+            logger.error(f"Error calculating product score: {e}", exc_info=True)
             return 0
 
     def update_or_create_metric(self, product_name: str, category: str, rating: float = 0.0, review_count: int = 0) -> int:
@@ -44,7 +44,7 @@ class RankingEngine:
             return score
         except Exception as e:
             db.rollback()
-            logger.error(f"Failed to update ProductMetric for {product_name}: {e}")
+            logger.error(f"Failed to update ProductMetric for {product_name}: {e}", exc_info=True)
             return 0
         finally:
             db.close()
